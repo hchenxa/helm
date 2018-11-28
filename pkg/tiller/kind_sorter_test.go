@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -42,6 +42,10 @@ func TestKindSorter(t *testing.T) {
 			Head: &util.SimpleHead{Kind: "CronJob"},
 		},
 		{
+			Name: "2",
+			Head: &util.SimpleHead{Kind: "CustomResourceDefinition"},
+		},
+		{
 			Name: "n",
 			Head: &util.SimpleHead{Kind: "DaemonSet"},
 		},
@@ -82,6 +86,10 @@ func TestKindSorter(t *testing.T) {
 			Head: &util.SimpleHead{Kind: "Pod"},
 		},
 		{
+			Name: "3",
+			Head: &util.SimpleHead{Kind: "PodSecurityPolicy"},
+		},
+		{
 			Name: "q",
 			Head: &util.SimpleHead{Kind: "ReplicaSet"},
 		},
@@ -118,9 +126,16 @@ func TestKindSorter(t *testing.T) {
 			Head: &util.SimpleHead{Kind: "StatefulSet"},
 		},
 		{
-			Name:    "w",
-			Content: "",
-			Head:    &util.SimpleHead{Kind: "APIService"},
+			Name: "1",
+			Head: &util.SimpleHead{Kind: "StorageClass"},
+		},
+		{
+			Name: "w",
+			Head: &util.SimpleHead{Kind: "APIService"},
+		},
+		{
+			Name: "z",
+			Head: &util.SimpleHead{Kind: "PodDisruptionBudget"},
 		},
 	}
 
@@ -129,8 +144,8 @@ func TestKindSorter(t *testing.T) {
 		order       SortOrder
 		expected    string
 	}{
-		{"install", InstallOrder, "abcdefghijklmnopqrstuvw!"},
-		{"uninstall", UninstallOrder, "wvmutsrqponlkjihgfedcba!"},
+		{"install", InstallOrder, "abc3zde1fgh2ijklmnopqrstuvw!"},
+		{"uninstall", UninstallOrder, "wvmutsrqponlkji2hgf1edz3cba!"},
 	} {
 		var buf bytes.Buffer
 		t.Run(test.description, func(t *testing.T) {
@@ -176,7 +191,7 @@ func TestKindSorterSubSort(t *testing.T) {
 			Head: &util.SimpleHead{Kind: "ClusterRoleBinding"},
 		},
 		{
-			Name: "u3",
+			Name: "u2",
 			Head: &util.SimpleHead{Kind: "Unknown"},
 		},
 		{
@@ -184,8 +199,8 @@ func TestKindSorterSubSort(t *testing.T) {
 			Head: &util.SimpleHead{Kind: "Unknown"},
 		},
 		{
-			Name: "u2",
-			Head: &util.SimpleHead{Kind: "Unknown"},
+			Name: "t3",
+			Head: &util.SimpleHead{Kind: "Unknown2"},
 		},
 	}
 	for _, test := range []struct {
@@ -194,7 +209,7 @@ func TestKindSorterSubSort(t *testing.T) {
 		expected    string
 	}{
 		// expectation is sorted by kind (unknown is last) and then sub sorted alphabetically within each group
-		{"cm,clusterRole,clusterRoleBinding,Unknown", InstallOrder, "01Aa!zu1u2u3"},
+		{"cm,clusterRole,clusterRoleBinding,Unknown,Unknown2", InstallOrder, "01Aa!zu1u2t3"},
 	} {
 		var buf bytes.Buffer
 		t.Run(test.description, func(t *testing.T) {

@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,11 +18,14 @@ package storage // import "k8s.io/helm/pkg/storage"
 
 import (
 	"fmt"
+	"strings"
 
 	rspb "k8s.io/helm/pkg/proto/hapi/release"
 	relutil "k8s.io/helm/pkg/releaseutil"
 	"k8s.io/helm/pkg/storage/driver"
 )
+
+const NoReleasesErr = "has no deployed releases"
 
 // Storage represents a storage engine for a Release.
 type Storage struct {
@@ -97,7 +100,7 @@ func (s *Storage) ListDeployed() ([]*rspb.Release, error) {
 	})
 }
 
-// ListFilterAll returns the set of releases satisfying satisfying the predicate
+// ListFilterAll returns the set of releases satisfying the predicate
 // (filter0 && filter1 && ... && filterN), i.e. a Release is included in the results
 // if and only if all filters return true.
 func (s *Storage) ListFilterAll(fns ...relutil.FilterFunc) ([]*rspb.Release, error) {
@@ -107,7 +110,7 @@ func (s *Storage) ListFilterAll(fns ...relutil.FilterFunc) ([]*rspb.Release, err
 	})
 }
 
-// ListFilterAny returns the set of releases satisfying satisfying the predicate
+// ListFilterAny returns the set of releases satisfying the predicate
 // (filter0 || filter1 || ... || filterN), i.e. a Release is included in the results
 // if at least one of the filters returns true.
 func (s *Storage) ListFilterAny(fns ...relutil.FilterFunc) ([]*rspb.Release, error) {
@@ -117,24 +120,41 @@ func (s *Storage) ListFilterAny(fns ...relutil.FilterFunc) ([]*rspb.Release, err
 	})
 }
 
-// Deployed returns the deployed release with the provided release name, or
+// Deployed returns the last deployed release with the provided release name, or
 // returns ErrReleaseNotFound if not found.
 func (s *Storage) Deployed(name string) (*rspb.Release, error) {
-	s.Log("getting deployed release from %q history", name)
+	ls, err := s.DeployedAll(name)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, fmt.Errorf("%q %s", name, NoReleasesErr)
+		}
+		return nil, err
+	}
+
+	if len(ls) == 0 {
+		return nil, fmt.Errorf("%q %s", name, NoReleasesErr)
+	}
+
+	return ls[0], err
+}
+
+// DeployedAll returns all deployed releases with the provided name, or
+// returns ErrReleaseNotFound if not found.
+func (s *Storage) DeployedAll(name string) ([]*rspb.Release, error) {
+	s.Log("getting deployed releases from %q history", name)
 
 	ls, err := s.Driver.Query(map[string]string{
 		"NAME":   name,
 		"OWNER":  "TILLER",
 		"STATUS": "DEPLOYED",
 	})
-	switch {
-	case err != nil:
-		return nil, err
-	case len(ls) == 0:
-		return nil, fmt.Errorf("%q has no deployed releases", name)
-	default:
-		return ls[0], nil
+	if err == nil {
+		return ls, nil
 	}
+	if strings.Contains(err.Error(), "not found") {
+		return nil, fmt.Errorf("%q %s", name, NoReleasesErr)
+	}
+	return nil, err
 }
 
 // History returns the revision history for the release with the provided name, or
@@ -145,7 +165,7 @@ func (s *Storage) History(name string) ([]*rspb.Release, error) {
 	return s.Driver.Query(map[string]string{"NAME": name, "OWNER": "TILLER"})
 }
 
-// removeLeastRecent removes items from history until the lengh number of releases
+// removeLeastRecent removes items from history until the length number of releases
 // does not exceed max.
 //
 // We allow max to be set explicitly so that calling functions can "make space"

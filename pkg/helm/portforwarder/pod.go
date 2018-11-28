@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ limitations under the License.
 package portforwarder
 
 import (
-	"k8s.io/client-go/pkg/api/v1"
+	"k8s.io/api/core/v1"
 )
 
 // These functions are adapted from the "kubernetes" repository's file
@@ -32,7 +32,7 @@ func isPodReady(pod *v1.Pod) bool {
 	return isPodReadyConditionTrue(pod.Status)
 }
 
-// isPodReady retruns true if a pod is ready; false otherwise.
+// isPodReadyConditionTrue returns true if a pod is ready; false otherwise.
 func isPodReadyConditionTrue(status v1.PodStatus) bool {
 	condition := getPodReadyCondition(status)
 	return condition != nil && condition.Status == v1.ConditionTrue

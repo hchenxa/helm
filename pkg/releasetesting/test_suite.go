@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 
 	"github.com/ghodss/yaml"
 	"github.com/golang/protobuf/ptypes/timestamp"
-	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/api/core/v1"
 
 	"k8s.io/helm/pkg/hooks"
 	"k8s.io/helm/pkg/proto/hapi/release"
@@ -90,7 +90,7 @@ func (ts *TestSuite) Run(env *Environment) error {
 		}
 
 		resourceCleanExit := true
-		status := api.PodUnknown
+		status := v1.PodUnknown
 		if resourceCreated {
 			status, err = env.getTestPodStatus(test)
 			if err != nil {
@@ -119,15 +119,15 @@ func (ts *TestSuite) Run(env *Environment) error {
 	return nil
 }
 
-func (t *test) assignTestResult(podStatus api.PodPhase) error {
+func (t *test) assignTestResult(podStatus v1.PodPhase) error {
 	switch podStatus {
-	case api.PodSucceeded:
+	case v1.PodSucceeded:
 		if t.expectedSuccess {
 			t.result.Status = release.TestRun_SUCCESS
 		} else {
 			t.result.Status = release.TestRun_FAILURE
 		}
-	case api.PodFailed:
+	case v1.PodFailed:
 		if !t.expectedSuccess {
 			t.result.Status = release.TestRun_SUCCESS
 		} else {

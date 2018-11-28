@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -43,6 +43,11 @@ func TestResolveChartRef(t *testing.T) {
 		{name: "reference, testing repo", ref: "testing/alpine", expect: "http://example.com/alpine-1.2.3.tgz"},
 		{name: "reference, version, testing repo", ref: "testing/alpine", version: "0.2.0", expect: "http://example.com/alpine-0.2.0.tgz"},
 		{name: "reference, version, malformed repo", ref: "malformed/alpine", version: "1.2.3", expect: "http://dl.example.com/alpine-1.2.3.tgz"},
+		{name: "reference, querystring repo", ref: "testing-querystring/alpine", expect: "http://example.com/alpine-1.2.3.tgz?key=value"},
+		{name: "reference, testing-relative repo", ref: "testing-relative/foo", expect: "http://example.com/helm/charts/foo-1.2.3.tgz"},
+		{name: "reference, testing-relative repo", ref: "testing-relative/bar", expect: "http://example.com/helm/bar-1.2.3.tgz"},
+		{name: "reference, testing-relative-trailing-slash repo", ref: "testing-relative-trailing-slash/foo", expect: "http://example.com/helm/charts/foo-1.2.3.tgz"},
+		{name: "reference, testing-relative-trailing-slash repo", ref: "testing-relative-trailing-slash/bar", expect: "http://example.com/helm/bar-1.2.3.tgz"},
 		{name: "full URL, HTTPS, irrelevant version", ref: "https://example.com/foo-1.2.3.tgz", version: "0.1.0", expect: "https://example.com/foo-1.2.3.tgz", fail: true},
 		{name: "full URL, file", ref: "file:///foo-1.2.3.tgz", fail: true},
 		{name: "invalid", ref: "invalid-1.2.3", fail: true},
@@ -94,11 +99,11 @@ func TestDownload(t *testing.T) {
 		t.Fatal("No http provider found")
 	}
 
-	getter, err := provider.New(srv.URL, "", "", "")
+	g, err := provider.New(srv.URL, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := getter.Get(srv.URL)
+	got, err := g.Get(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,16 +115,21 @@ func TestDownload(t *testing.T) {
 	// test with server backed by basic auth
 	basicAuthSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
-		if !ok || username != "username" && password != "password" {
+		if !ok || username != "username" || password != "password" {
 			t.Errorf("Expected request to use basic auth and for username == 'username' and password == 'password', got '%v', '%s', '%s'", ok, username, password)
 		}
 		fmt.Fprint(w, expect)
 	}))
+
 	defer basicAuthSrv.Close()
 
 	u, _ := url.ParseRequestURI(basicAuthSrv.URL)
-	u.User = url.UserPassword("username", "password")
-	got, err = getter.Get(u.String())
+	httpgetter, err := getter.NewHTTPGetter(u.String(), "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpgetter.SetCredentials("username", "password")
+	got, err = httpgetter.Get(u.String())
 	if err != nil {
 		t.Fatal(err)
 	}

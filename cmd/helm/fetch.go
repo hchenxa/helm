@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,6 +52,8 @@ type fetchCmd struct {
 	destdir  string
 	version  string
 	repoURL  string
+	username string
+	password string
 
 	verify      bool
 	verifyLater bool
@@ -79,8 +81,8 @@ func newFetchCmd(out io.Writer) *cobra.Command {
 			}
 
 			if fch.version == "" && fch.devel {
-				debug("setting version to >0.0.0-a")
-				fch.version = ">0.0.0-a"
+				debug("setting version to >0.0.0-0")
+				fch.version = ">0.0.0-0"
 			}
 
 			for i := 0; i < len(args); i++ {
@@ -105,7 +107,9 @@ func newFetchCmd(out io.Writer) *cobra.Command {
 	f.StringVar(&fch.certFile, "cert-file", "", "identify HTTPS client using this SSL certificate file")
 	f.StringVar(&fch.keyFile, "key-file", "", "identify HTTPS client using this SSL key file")
 	f.StringVar(&fch.caFile, "ca-file", "", "verify certificates of HTTPS-enabled servers using this CA bundle")
-	f.BoolVar(&fch.devel, "devel", false, "use development versions, too. Equivalent to version '>0.0.0-a'. If --version is set, this is ignored.")
+	f.BoolVar(&fch.devel, "devel", false, "use development versions, too. Equivalent to version '>0.0.0-0'. If --version is set, this is ignored.")
+	f.StringVar(&fch.username, "username", "", "chart repository username")
+	f.StringVar(&fch.password, "password", "", "chart repository password")
 
 	return cmd
 }
@@ -117,6 +121,8 @@ func (f *fetchCmd) run() error {
 		Keyring:  f.keyring,
 		Verify:   downloader.VerifyNever,
 		Getters:  getter.All(settings),
+		Username: f.username,
+		Password: f.password,
 	}
 
 	if f.verify {
@@ -138,7 +144,7 @@ func (f *fetchCmd) run() error {
 	}
 
 	if f.repoURL != "" {
-		chartURL, err := repo.FindChartInRepoURL(f.repoURL, f.chartRef, f.version, f.certFile, f.keyFile, f.caFile, getter.All(settings))
+		chartURL, err := repo.FindChartInAuthRepoURL(f.repoURL, f.username, f.password, f.chartRef, f.version, f.certFile, f.keyFile, f.caFile, getter.All(settings))
 		if err != nil {
 			return err
 		}

@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -77,14 +77,19 @@ func TestFindChartURL(t *testing.T) {
 	version := "0.1.0"
 	repoURL := "http://example.com/charts"
 
-	churl, err := findChartURL(name, version, repoURL, repos)
+	churl, username, password, err := findChartURL(name, version, repoURL, repos)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if churl != "https://kubernetes-charts.storage.googleapis.com/alpine-0.1.0.tgz" {
 		t.Errorf("Unexpected URL %q", churl)
 	}
-
+	if username != "" {
+		t.Errorf("Unexpected username %q", username)
+	}
+	if password != "" {
+		t.Errorf("Unexpected password %q", password)
+	}
 }
 
 func TestGetRepoNames(t *testing.T) {
@@ -103,6 +108,13 @@ func TestGetRepoNames(t *testing.T) {
 			name: "no repo definition failure",
 			req: []*chartutil.Dependency{
 				{Name: "oedipus-rex", Repository: "http://example.com/test"},
+			},
+			err: true,
+		},
+		{
+			name: "no repo definition failure -- stable repo",
+			req: []*chartutil.Dependency{
+				{Name: "oedipus-rex", Repository: "stable"},
 			},
 			err: true,
 		},

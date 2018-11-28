@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,6 +36,8 @@ type Entry struct {
 	Name     string `json:"name"`
 	Cache    string `json:"cache"`
 	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 	CertFile string `json:"certFile"`
 	KeyFile  string `json:"keyFile"`
 	CAFile   string `json:"caFile"`
@@ -62,7 +64,7 @@ func NewChartRepository(cfg *Entry, getters getter.Providers) (*ChartRepository,
 	}
 	client, err := getterConstructor(cfg.URL, cfg.CertFile, cfg.KeyFile, cfg.CAFile)
 	if err != nil {
-		return nil, fmt.Errorf("Could not construct protocol handler for: %s", u.Scheme)
+		return nil, fmt.Errorf("Could not construct protocol handler for: %s error: %v", u.Scheme, err)
 	}
 
 	return &ChartRepository{
@@ -110,8 +112,15 @@ func (r *ChartRepository) Load() error {
 // is for pre-2.2.0 repo files.
 func (r *ChartRepository) DownloadIndexFile(cachePath string) error {
 	var indexURL string
+	parsedURL, err := url.Parse(r.Config.URL)
+	if err != nil {
+		return err
+	}
+	parsedURL.Path = strings.TrimSuffix(parsedURL.Path, "/") + "/index.yaml"
 
-	indexURL = strings.TrimSuffix(r.Config.URL, "/") + "/index.yaml"
+	indexURL = parsedURL.String()
+
+	r.setCredentials()
 	resp, err := r.Client.Get(indexURL)
 	if err != nil {
 		return err
@@ -138,6 +147,13 @@ func (r *ChartRepository) DownloadIndexFile(cachePath string) error {
 	}
 
 	return ioutil.WriteFile(cp, index, 0644)
+}
+
+// If HttpGetter is used, this method sets the configured repository credentials on the HttpGetter.
+func (r *ChartRepository) setCredentials() {
+	if t, ok := r.Client.(*getter.HttpGetter); ok {
+		t.SetCredentials(r.Config.Username, r.Config.Password)
+	}
 }
 
 // Index generates an index for the chart repository and writes an index.yaml file.
@@ -179,8 +195,15 @@ func (r *ChartRepository) generateIndex() error {
 }
 
 // FindChartInRepoURL finds chart in chart repository pointed by repoURL
-// without adding repo to repostiories
+// without adding repo to repositories
 func FindChartInRepoURL(repoURL, chartName, chartVersion, certFile, keyFile, caFile string, getters getter.Providers) (string, error) {
+	return FindChartInAuthRepoURL(repoURL, "", "", chartName, chartVersion, certFile, keyFile, caFile, getters)
+}
+
+// FindChartInAuthRepoURL finds chart in chart repository pointed by repoURL
+// without adding repo to repositories, like FindChartInRepoURL,
+// but it also receives credentials for the chart repository.
+func FindChartInAuthRepoURL(repoURL, username, password, chartName, chartVersion, certFile, keyFile, caFile string, getters getter.Providers) (string, error) {
 
 	// Download and write the index file to a temporary location
 	tempIndexFile, err := ioutil.TempFile("", "tmp-repo-file")
@@ -191,6 +214,8 @@ func FindChartInRepoURL(repoURL, chartName, chartVersion, certFile, keyFile, caF
 
 	c := Entry{
 		URL:      repoURL,
+		Username: username,
+		Password: password,
 		CertFile: certFile,
 		KeyFile:  keyFile,
 		CAFile:   caFile,
@@ -222,5 +247,36 @@ func FindChartInRepoURL(repoURL, chartName, chartVersion, certFile, keyFile, caF
 		return "", fmt.Errorf("%s has no downloadable URLs", errMsg)
 	}
 
-	return cv.URLs[0], nil
+	chartURL := cv.URLs[0]
+
+	absoluteChartURL, err := ResolveReferenceURL(repoURL, chartURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to make chart URL absolute: %v", err)
+	}
+
+	return absoluteChartURL, nil
+}
+
+// ResolveReferenceURL resolves refURL relative to baseURL.
+// If refURL is absolute, it simply returns refURL.
+func ResolveReferenceURL(baseURL, refURL string) (string, error) {
+	parsedBaseURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse %s as URL: %v", baseURL, err)
+	}
+
+	parsedRefURL, err := url.Parse(refURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse %s as URL: %v", refURL, err)
+	}
+
+	// if the base URL contains query string parameters,
+	// propagate them to the child URL but only if the
+	// refURL is relative to baseURL
+	resolvedURL := parsedBaseURL.ResolveReference(parsedRefURL)
+	if (resolvedURL.Hostname() == parsedBaseURL.Hostname()) && (resolvedURL.Port() == parsedBaseURL.Port()) {
+		resolvedURL.RawQuery = parsedBaseURL.RawQuery
+	}
+
+	return resolvedURL.String(), nil
 }

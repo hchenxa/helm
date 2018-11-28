@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,24 +17,20 @@ limitations under the License.
 package driver // import "k8s.io/helm/pkg/storage/driver"
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/proto"
+	"k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kblabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	rspb "k8s.io/helm/pkg/proto/hapi/release"
+	storageerrors "k8s.io/helm/pkg/storage/errors"
 )
 
 var _ Driver = (*ConfigMaps)(nil)
@@ -42,20 +38,16 @@ var _ Driver = (*ConfigMaps)(nil)
 // ConfigMapsDriverName is the string name of the driver.
 const ConfigMapsDriverName = "ConfigMap"
 
-var b64 = base64.StdEncoding
-
-var magicGzip = []byte{0x1f, 0x8b, 0x08}
-
 // ConfigMaps is a wrapper around an implementation of a kubernetes
 // ConfigMapsInterface.
 type ConfigMaps struct {
-	impl internalversion.ConfigMapInterface
+	impl corev1.ConfigMapInterface
 	Log  func(string, ...interface{})
 }
 
-// NewConfigMaps initializes a new ConfigMaps wrapping an implmenetation of
+// NewConfigMaps initializes a new ConfigMaps wrapping an implementation of
 // the kubernetes ConfigMapsInterface.
-func NewConfigMaps(impl internalversion.ConfigMapInterface) *ConfigMaps {
+func NewConfigMaps(impl corev1.ConfigMapInterface) *ConfigMaps {
 	return &ConfigMaps{
 		impl: impl,
 		Log:  func(_ string, _ ...interface{}) {},
@@ -74,7 +66,7 @@ func (cfgmaps *ConfigMaps) Get(key string) (*rspb.Release, error) {
 	obj, err := cfgmaps.impl.Get(key, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, ErrReleaseNotFound(key)
+			return nil, storageerrors.ErrReleaseNotFound(key)
 		}
 
 		cfgmaps.Log("get: failed to get %q: %s", key, err)
@@ -140,7 +132,7 @@ func (cfgmaps *ConfigMaps) Query(labels map[string]string) ([]*rspb.Release, err
 	}
 
 	if len(list.Items) == 0 {
-		return nil, ErrReleaseNotFound(labels["NAME"])
+		return nil, storageerrors.ErrReleaseNotFound(labels["NAME"])
 	}
 
 	var results []*rspb.Release
@@ -173,7 +165,7 @@ func (cfgmaps *ConfigMaps) Create(key string, rls *rspb.Release) error {
 	// push the configmap object out into the kubiverse
 	if _, err := cfgmaps.impl.Create(obj); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			return ErrReleaseExists(key)
+			return storageerrors.ErrReleaseExists(key)
 		}
 
 		cfgmaps.Log("create: failed to create: %s", err)
@@ -211,7 +203,7 @@ func (cfgmaps *ConfigMaps) Delete(key string) (rls *rspb.Release, err error) {
 	// fetch the release to check existence
 	if rls, err = cfgmaps.Get(key); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, ErrReleaseExists(rls.Name)
+			return nil, storageerrors.ErrReleaseExists(rls.Name)
 		}
 
 		cfgmaps.Log("delete: failed to get release %q: %s", key, err)
@@ -237,7 +229,7 @@ func (cfgmaps *ConfigMaps) Delete(key string) (rls *rspb.Release, err error) {
 //    "OWNER"          - owner of the configmap, currently "TILLER".
 //    "NAME"           - name of the release.
 //
-func newConfigMapsObject(key string, rls *rspb.Release, lbs labels) (*api.ConfigMap, error) {
+func newConfigMapsObject(key string, rls *rspb.Release, lbs labels) (*v1.ConfigMap, error) {
 	const owner = "TILLER"
 
 	// encode the release
@@ -257,65 +249,11 @@ func newConfigMapsObject(key string, rls *rspb.Release, lbs labels) (*api.Config
 	lbs.set("VERSION", strconv.Itoa(int(rls.Version)))
 
 	// create and return configmap object
-	return &api.ConfigMap{
+	return &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   key,
 			Labels: lbs.toMap(),
 		},
 		Data: map[string]string{"release": s},
 	}, nil
-}
-
-// encodeRelease encodes a release returning a base64 encoded
-// gzipped binary protobuf encoding representation, or error.
-func encodeRelease(rls *rspb.Release) (string, error) {
-	b, err := proto.Marshal(rls)
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	w, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-	if err != nil {
-		return "", err
-	}
-	if _, err = w.Write(b); err != nil {
-		return "", err
-	}
-	w.Close()
-
-	return b64.EncodeToString(buf.Bytes()), nil
-}
-
-// decodeRelease decodes the bytes in data into a release
-// type. Data must contain a base64 encoded string of a
-// valid protobuf encoding of a release, otherwise
-// an error is returned.
-func decodeRelease(data string) (*rspb.Release, error) {
-	// base64 decode string
-	b, err := b64.DecodeString(data)
-	if err != nil {
-		return nil, err
-	}
-
-	// For backwards compatibility with releases that were stored before
-	// compression was introduced we skip decompression if the
-	// gzip magic header is not found
-	if bytes.Equal(b[0:3], magicGzip) {
-		r, err := gzip.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return nil, err
-		}
-		b2, err := ioutil.ReadAll(r)
-		if err != nil {
-			return nil, err
-		}
-		b = b2
-	}
-
-	var rls rspb.Release
-	// unmarshal protobuf bytes
-	if err := proto.Unmarshal(b, &rls); err != nil {
-		return nil, err
-	}
-	return &rls, nil
 }

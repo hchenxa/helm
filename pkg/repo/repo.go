@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright The Helm Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/facebookgo/atomicfile"
 	"github.com/ghodss/yaml"
 )
 
@@ -32,7 +31,8 @@ import (
 var ErrRepoOutOfDate = errors.New("repository file is out of date")
 
 // RepoFile represents the repositories.yaml file in $HELM_HOME
-type RepoFile struct {
+// TODO: change type name to File in Helm 3 to resolve linter warning
+type RepoFile struct { // nolint
 	APIVersion   string    `json:"apiVersion"`
 	Generated    time.Time `json:"generated"`
 	Repositories []*Entry  `json:"repositories"`
@@ -56,6 +56,13 @@ func NewRepoFile() *RepoFile {
 func LoadRepositoriesFile(path string) (*RepoFile, error) {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf(
+				"Couldn't load repositories file (%s).\n"+
+					"You might need to run `helm init` (or "+
+					"`helm init --client-only` if tiller is "+
+					"already installed)", path)
+		}
 		return nil, err
 	}
 
@@ -135,20 +142,9 @@ func (r *RepoFile) Remove(name string) bool {
 
 // WriteFile writes a repositories file to the given path.
 func (r *RepoFile) WriteFile(path string, perm os.FileMode) error {
-	f, err := atomicfile.New(path, perm)
-	if err != nil {
-		return err
-	}
-
 	data, err := yaml.Marshal(r)
 	if err != nil {
 		return err
 	}
-
-	_, err = f.File.Write(data)
-	if err != nil {
-		return err
-	}
-
-	return f.Close()
+	return ioutil.WriteFile(path, data, perm)
 }
